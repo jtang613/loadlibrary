@@ -70,6 +70,46 @@ STATIC PVOID WINAPI HeapReAlloc(HANDLE hHeap, DWORD dwFlags, PVOID lpMem, SIZE_T
     return realloc(lpMem, dwBytes);
 }
 
+STATIC BOOL WINAPI HeapDestroy(HANDLE hHeap)
+{
+    DebugLog("%p", hHeap);
+    return TRUE;
+}
+
+STATIC BOOL WINAPI HeapSetInformation(HANDLE HeapHandle,
+                                      HEAP_INFORMATION_CLASS HeapInformationClass,
+                                      PVOID HeapInformation,
+                                      SIZE_T HeapInformationLength)
+{
+    DebugLog("%p, %u, %p, %u", HeapHandle, HeapInformationClass, HeapInformation, HeapInformationLength);
+    return TRUE;
+}
+
+STATIC BOOL WINAPI HeapQueryInformation(HANDLE HeapHandle,
+                                        HEAP_INFORMATION_CLASS HeapInformationClass,
+                                        PVOID HeapInformation,
+                                        SIZE_T HeapInformationLength,
+                                        SIZE_T *ReturnLength)
+{
+    DebugLog("%p, %u, %p, %u, %p", HeapHandle, HeapInformationClass, HeapInformation, HeapInformationLength, ReturnLength);
+    if (ReturnLength) {
+        *ReturnLength = 0;
+    }
+    return FALSE;
+}
+
+STATIC BOOL WINAPI HeapValidate(HANDLE hHeap, DWORD dwFlags, PVOID lpMem)
+{
+    DebugLog("%p, %#x, %p", hHeap, dwFlags, lpMem);
+    return TRUE;
+}
+
+STATIC SIZE_T WINAPI HeapCompact(HANDLE hHeap, DWORD dwFlags)
+{
+    DebugLog("%p, %#x", hHeap, dwFlags);
+    return 0;
+}
+
 STATIC PVOID WINAPI LocalAlloc(UINT uFlags, SIZE_T uBytes)
 {
     PVOID Buffer = malloc(uBytes);
@@ -141,11 +181,16 @@ STATIC PVOID WINAPI GlobalFree(PVOID hMem)
 }
 
 DECLARE_CRT_EXPORT("HeapCreate", HeapCreate);
+DECLARE_CRT_EXPORT("HeapDestroy", HeapDestroy);
 DECLARE_CRT_EXPORT("GetProcessHeap", GetProcessHeap);
 DECLARE_CRT_EXPORT("HeapAlloc", HeapAlloc);
 DECLARE_CRT_EXPORT("HeapFree", HeapFree);
 DECLARE_CRT_EXPORT("RtlFreeHeap", RtlFreeHeap);
 DECLARE_CRT_EXPORT("RtlSetHeapInformation", RtlSetHeapInformation);
+DECLARE_CRT_EXPORT("HeapSetInformation", HeapSetInformation);
+DECLARE_CRT_EXPORT("HeapQueryInformation", HeapQueryInformation);
+DECLARE_CRT_EXPORT("HeapValidate", HeapValidate);
+DECLARE_CRT_EXPORT("HeapCompact", HeapCompact);
 DECLARE_CRT_EXPORT("HeapSize", HeapSize);
 DECLARE_CRT_EXPORT("HeapReAlloc", HeapReAlloc);
 DECLARE_CRT_EXPORT("LocalAlloc", LocalAlloc);

@@ -17,6 +17,7 @@
 #include "winexports.h"
 #include "util.h"
 #include "winstrings.h"
+#include "rootcert.h"
 
 typedef struct _CRYPT_BIT_BLOB {
   DWORD cbData;
@@ -79,6 +80,22 @@ typedef struct _CERT_CONTEXT {
   PCERT_INFO pCertInfo;
   HANDLE     hCertStore;
 } CERT_CONTEXT, *PCERT_CONTEXT;
+
+typedef const CERT_CONTEXT *PCCERT_CONTEXT;
+
+static PCERT_CONTEXT GetFakeCertContext(void)
+{
+    static CERT_INFO FakeInfo = {0};
+    static CERT_CONTEXT FakeCert = {0};
+
+    FakeCert.dwCertEncodingType = 1;
+    FakeCert.pbCertEncoded = RootCertificate;
+    FakeCert.cbCertEncoded = sizeof(RootCertificate);
+    FakeCert.pCertInfo = &FakeInfo;
+    FakeCert.pCertInfo->SubjectPublicKeyInfo.Algorithm.pszObjId = "1.2.840.113549.1.1.1";
+
+    return &FakeCert;
+}
 
 static NTSTATUS WINAPI BCryptOpenAlgorithmProvider(PVOID phAlgorithm, PWCHAR pszAlgId, PWCHAR pszImplementation, DWORD dwFlags)
 {
@@ -156,10 +173,6 @@ enum {
     CERT_FIND_SUBJECT_NAME = 131079,
 };
 
-
-
-#include "rootcert.h"
-
 static PVOID WINAPI CertFindCertificateInStore(HANDLE hCertStore,
                                                DWORD dwCertEncodingType,
                                                DWORD dwFindFlags,
@@ -167,9 +180,6 @@ static PVOID WINAPI CertFindCertificateInStore(HANDLE hCertStore,
                                                PVOID pvFindPara,
                                                PVOID pPrevCertContext)
 {
-    static CERT_INFO FakeInfo = {0};
-    static CERT_CONTEXT FakeCert = {0};
-
     DebugLog("%p, %u, %#x, %#x, %p, %p", hCertStore,
                                          dwCertEncodingType,
                                          dwFindFlags,
@@ -184,15 +194,56 @@ static PVOID WINAPI CertFindCertificateInStore(HANDLE hCertStore,
         }
     }
 
-    DebugLog("FakeCert: %p", &FakeCert);
+    DebugLog("FakeCert: %p", GetFakeCertContext());
 
-    FakeCert.dwCertEncodingType = 1;
-    FakeCert.pbCertEncoded = RootCertificate;
-    FakeCert.cbCertEncoded = sizeof(RootCertificate);
-    FakeCert.pCertInfo = &FakeInfo;
-    FakeCert.pCertInfo->SubjectPublicKeyInfo.Algorithm.pszObjId = "1.2.840.113549.1.1.1";
+    return GetFakeCertContext();
+}
 
-    return &FakeCert;
+static PVOID WINAPI CertCreateCertificateContext(DWORD dwCertEncodingType,
+                                                 const BYTE *pbCertEncoded,
+                                                 DWORD cbCertEncoded)
+{
+    DebugLog("%#x, %p, %u", dwCertEncodingType, pbCertEncoded, cbCertEncoded);
+    return GetFakeCertContext();
+}
+
+static BOOL WINAPI CertAddEncodedCertificateToStore(HANDLE hCertStore,
+                                                    DWORD dwCertEncodingType,
+                                                    const BYTE *pbCertEncoded,
+                                                    DWORD cbCertEncoded,
+                                                    DWORD dwAddDisposition,
+                                                    PCCERT_CONTEXT *ppCertContext)
+{
+    DebugLog("%p, %#x, %p, %u, %#x, %p", hCertStore,
+                                             dwCertEncodingType,
+                                             pbCertEncoded,
+                                             cbCertEncoded,
+                                             dwAddDisposition,
+                                             ppCertContext);
+    if (ppCertContext) {
+        *ppCertContext = GetFakeCertContext();
+    }
+    return TRUE;
+}
+
+static PVOID WINAPI CertEnumCertificatesInStore(HANDLE hCertStore, PVOID pPrevCertContext)
+{
+    DebugLog("%p, %p", hCertStore, pPrevCertContext);
+    return pPrevCertContext ? NULL : GetFakeCertContext();
+}
+
+static BOOL WINAPI CertDeleteCertificateFromStore(PVOID pCertContext)
+{
+    DebugLog("%p", pCertContext);
+    return TRUE;
+}
+
+static PVOID WINAPI CertGetSubjectCertificateFromStore(HANDLE hCertStore,
+                                                       DWORD dwCertEncodingType,
+                                                       PCERT_INFO pCertId)
+{
+    DebugLog("%p, %#x, %p", hCertStore, dwCertEncodingType, pCertId);
+    return GetFakeCertContext();
 }
 
 static BOOL WINAPI CertCloseStore(HANDLE hCertStore, DWORD dwFlags)
@@ -208,6 +259,60 @@ static BOOL WINAPI CryptAcquireContextW(PVOID phProv, PWCHAR pszContainer, PWCHA
 static BOOL WINAPI CertFreeCertificateContext(PVOID pCertContext)
 {
     return TRUE;
+}
+
+static BOOL WINAPI CertGetCertificateContextProperty(PVOID pCertContext,
+                                                     DWORD dwPropId,
+                                                     PVOID pvData,
+                                                     DWORD *pcbData)
+{
+    DebugLog("%p, %#x, %p, %p", pCertContext, dwPropId, pvData, pcbData);
+
+    if (pcbData) {
+        if (pvData && *pcbData) {
+            memset(pvData, 0, *pcbData);
+        } else {
+            *pcbData = 0;
+        }
+    }
+
+    return TRUE;
+}
+
+static DWORD WINAPI CertNameToStrW(DWORD dwCertEncodingType,
+                                   PCERT_NAME_BLOB pName,
+                                   DWORD dwStrType,
+                                   LPWSTR psz,
+                                   DWORD csz)
+{
+    static const WCHAR Name[] = L"Microsoft Root Authority";
+    DWORD Required = sizeof(Name) / sizeof(Name[0]);
+
+    DebugLog("%#x, %p, %#x, %p, %u", dwCertEncodingType, pName, dwStrType, psz, csz);
+
+    if (psz && csz) {
+        DWORD Count = Required < csz ? Required : csz;
+        memcpy(psz, Name, Count * sizeof(WCHAR));
+        psz[csz - 1] = 0;
+    }
+
+    return Required;
+}
+
+static DWORD WINAPI CertGetNameStringW(PVOID pCertContext,
+                                       DWORD dwType,
+                                       DWORD dwFlags,
+                                       PVOID pvTypePara,
+                                       LPWSTR pszNameString,
+                                       DWORD cchNameString)
+{
+    DebugLog("%p, %#x, %#x, %p, %p, %u", pCertContext,
+                                             dwType,
+                                             dwFlags,
+                                             pvTypePara,
+                                             pszNameString,
+                                             cchNameString);
+    return CertNameToStrW(1, NULL, 0, pszNameString, cchNameString);
 }
 
 enum {
@@ -297,6 +402,191 @@ static BOOL WINAPI CertVerifyCertificateChainPolicy(PVOID pszPolicyOID, PVOID pC
     return TRUE;
 }
 
+static BOOL WINAPI CertGetCertificateChain(HANDLE hChainEngine,
+                                           PVOID pCertContext,
+                                           PFILETIME pTime,
+                                           HANDLE hAdditionalStore,
+                                           PVOID pChainPara,
+                                           DWORD dwFlags,
+                                           PVOID pvReserved,
+                                           PVOID *ppChainContext)
+{
+    static DWORD FakeChainContext[16] = {0};
+
+    DebugLog("%p, %p, %p, %p, %p, %#x, %p, %p", hChainEngine,
+                                                     pCertContext,
+                                                     pTime,
+                                                     hAdditionalStore,
+                                                     pChainPara,
+                                                     dwFlags,
+                                                     pvReserved,
+                                                     ppChainContext);
+    if (ppChainContext) {
+        *ppChainContext = FakeChainContext;
+    }
+
+    return TRUE;
+}
+
+static VOID WINAPI CertFreeCertificateChain(PVOID pChainContext)
+{
+    DebugLog("%p", pChainContext);
+}
+
+static PVOID WINAPI CryptMsgOpenToDecode(DWORD dwMsgEncodingType,
+                                         DWORD dwFlags,
+                                         DWORD dwMsgType,
+                                         HANDLE hCryptProv,
+                                         PCERT_INFO pRecipientInfo,
+                                         PVOID pStreamInfo)
+{
+    DebugLog("%#x, %#x, %#x, %p, %p, %p", dwMsgEncodingType,
+                                             dwFlags,
+                                             dwMsgType,
+                                             hCryptProv,
+                                             pRecipientInfo,
+                                             pStreamInfo);
+    return (PVOID) 'CMSG';
+}
+
+static BOOL WINAPI CryptMsgUpdate(PVOID hCryptMsg, const BYTE *pbData, DWORD cbData, BOOL fFinal)
+{
+    DebugLog("%p, %p, %u, %u", hCryptMsg, pbData, cbData, fFinal);
+    return TRUE;
+}
+
+static BOOL WINAPI CryptMsgGetParam(PVOID hCryptMsg,
+                                    DWORD dwParamType,
+                                    DWORD dwIndex,
+                                    PVOID pvData,
+                                    DWORD *pcbData)
+{
+    DebugLog("%p, %#x, %u, %p, %p", hCryptMsg, dwParamType, dwIndex, pvData, pcbData);
+
+    if (pcbData) {
+        if (pvData && *pcbData) {
+            memset(pvData, 0, *pcbData);
+        } else {
+            *pcbData = 0;
+        }
+    }
+
+    return TRUE;
+}
+
+static BOOL WINAPI CryptMsgControl(PVOID hCryptMsg, DWORD dwFlags, DWORD dwCtrlType, const PVOID pvCtrlPara)
+{
+    DebugLog("%p, %#x, %#x, %p", hCryptMsg, dwFlags, dwCtrlType, pvCtrlPara);
+    return TRUE;
+}
+
+static BOOL WINAPI CryptMsgClose(PVOID hCryptMsg)
+{
+    DebugLog("%p", hCryptMsg);
+    return TRUE;
+}
+
+static BOOL WINAPI CryptDecodeObject(DWORD dwCertEncodingType,
+                                     LPCSTR lpszStructType,
+                                     const BYTE *pbEncoded,
+                                     DWORD cbEncoded,
+                                     DWORD dwFlags,
+                                     PVOID pvStructInfo,
+                                     DWORD *pcbStructInfo)
+{
+    DebugLog("%#x, %p, %p, %u, %#x, %p, %p", dwCertEncodingType,
+                                                     lpszStructType,
+                                                     pbEncoded,
+                                                     cbEncoded,
+                                                     dwFlags,
+                                                     pvStructInfo,
+                                                     pcbStructInfo);
+    if (pcbStructInfo) {
+        if (pvStructInfo && *pcbStructInfo) {
+            memset(pvStructInfo, 0, *pcbStructInfo);
+        } else {
+            *pcbStructInfo = 0;
+        }
+    }
+    return TRUE;
+}
+
+static HANDLE WINAPI CryptGetMessageCertificates(DWORD dwMsgAndCertEncodingType,
+                                                 HANDLE hCryptProv,
+                                                 DWORD dwFlags,
+                                                 const BYTE *pbSignedBlob,
+                                                 DWORD cbSignedBlob)
+{
+    DebugLog("%#x, %p, %#x, %p, %u", dwMsgAndCertEncodingType,
+                                             hCryptProv,
+                                             dwFlags,
+                                             pbSignedBlob,
+                                             cbSignedBlob);
+    return (HANDLE) 'STOR';
+}
+
+static BOOL WINAPI CryptQueryObject(DWORD dwObjectType,
+                                    const PVOID pvObject,
+                                    DWORD dwExpectedContentTypeFlags,
+                                    DWORD dwExpectedFormatTypeFlags,
+                                    DWORD dwFlags,
+                                    DWORD *pdwMsgAndCertEncodingType,
+                                    DWORD *pdwContentType,
+                                    DWORD *pdwFormatType,
+                                    HANDLE *phCertStore,
+                                    PVOID *phMsg,
+                                    PVOID *ppvContext)
+{
+    DebugLog("%#x, %p, %#x, %#x, %#x, %p, %p, %p, %p, %p, %p",
+             dwObjectType,
+             pvObject,
+             dwExpectedContentTypeFlags,
+             dwExpectedFormatTypeFlags,
+             dwFlags,
+             pdwMsgAndCertEncodingType,
+             pdwContentType,
+             pdwFormatType,
+             phCertStore,
+             phMsg,
+             ppvContext);
+
+    if (pdwMsgAndCertEncodingType) *pdwMsgAndCertEncodingType = 0x10001;
+    if (pdwContentType) *pdwContentType = 2;
+    if (pdwFormatType) *pdwFormatType = 1;
+    if (phCertStore) *phCertStore = (HANDLE) 'STOR';
+    if (phMsg) *phMsg = (PVOID) 'CMSG';
+    if (ppvContext) *ppvContext = GetFakeCertContext();
+
+    return TRUE;
+}
+
+static BOOL WINAPI CryptStringToBinaryW(LPCWSTR pszString,
+                                        DWORD cchString,
+                                        DWORD dwFlags,
+                                        BYTE *pbBinary,
+                                        DWORD *pcbBinary,
+                                        DWORD *pdwSkip,
+                                        DWORD *pdwFlags)
+{
+    DebugLog("%p, %u, %#x, %p, %p, %p, %p", pszString,
+                                             cchString,
+                                             dwFlags,
+                                             pbBinary,
+                                             pcbBinary,
+                                             pdwSkip,
+                                             pdwFlags);
+    if (pcbBinary) {
+        if (pbBinary && *pcbBinary) {
+            memset(pbBinary, 0, *pcbBinary);
+        } else {
+            *pcbBinary = 0;
+        }
+    }
+    if (pdwSkip) *pdwSkip = 0;
+    if (pdwFlags) *pdwFlags = dwFlags;
+    return TRUE;
+}
+
 static BOOL WINAPI CryptDestroyHash(DWORD hHash)
 {
     DebugLog("%p", hHash);
@@ -307,11 +597,23 @@ static BOOL WINAPI CryptDestroyHash(DWORD hHash)
 }
 
 DECLARE_CRT_EXPORT("CertCloseStore", CertCloseStore);
+DECLARE_CRT_EXPORT("CertAddEncodedCertificateToStore", CertAddEncodedCertificateToStore);
+DECLARE_CRT_EXPORT("CertCreateCertificateContext", CertCreateCertificateContext);
+DECLARE_CRT_EXPORT("CertDeleteCertificateFromStore", CertDeleteCertificateFromStore);
+DECLARE_CRT_EXPORT("CertEnumCertificatesInStore", CertEnumCertificatesInStore);
 DECLARE_CRT_EXPORT("CertFindCertificateInStore", CertFindCertificateInStore);
 DECLARE_CRT_EXPORT("CertFreeCertificateContext", CertFreeCertificateContext);
+DECLARE_CRT_EXPORT("CertFreeCertificateChain", CertFreeCertificateChain);
+DECLARE_CRT_EXPORT("CertGetCertificateChain", CertGetCertificateChain);
+DECLARE_CRT_EXPORT("CertGetCertificateContextProperty", CertGetCertificateContextProperty);
+DECLARE_CRT_EXPORT("CertGetNameStringW", CertGetNameStringW);
+DECLARE_CRT_EXPORT("CertGetSubjectCertificateFromStore", CertGetSubjectCertificateFromStore);
+DECLARE_CRT_EXPORT("CertNameToStrW", CertNameToStrW);
 DECLARE_CRT_EXPORT("CertOpenStore", CertOpenStore);
 DECLARE_CRT_EXPORT("CertStrToNameW", CertStrToNameW);
 DECLARE_CRT_EXPORT("CertVerifyCertificateChainPolicy", CertVerifyCertificateChainPolicy);
+DECLARE_CRT_EXPORT("CryptDecodeObject", CryptDecodeObject);
+DECLARE_CRT_EXPORT("CryptGetMessageCertificates", CryptGetMessageCertificates);
 DECLARE_CRT_EXPORT("CryptImportPublicKeyInfo", CryptImportPublicKeyInfo);
 DECLARE_CRT_EXPORT("CryptCreateHash", CryptCreateHash);
 DECLARE_CRT_EXPORT("BCryptOpenAlgorithmProvider", BCryptOpenAlgorithmProvider);
@@ -319,7 +621,13 @@ DECLARE_CRT_EXPORT("BCryptCloseAlgorithmProvider", BCryptCloseAlgorithmProvider)
 DECLARE_CRT_EXPORT("BCryptGenRandom", BCryptGenRandom);
 DECLARE_CRT_EXPORT("CryptAcquireContextW", CryptAcquireContextW);
 DECLARE_CRT_EXPORT("CryptGetHashParam", CryptGetHashParam);
+DECLARE_CRT_EXPORT("CryptMsgClose", CryptMsgClose);
+DECLARE_CRT_EXPORT("CryptMsgControl", CryptMsgControl);
+DECLARE_CRT_EXPORT("CryptMsgGetParam", CryptMsgGetParam);
+DECLARE_CRT_EXPORT("CryptMsgOpenToDecode", CryptMsgOpenToDecode);
+DECLARE_CRT_EXPORT("CryptMsgUpdate", CryptMsgUpdate);
+DECLARE_CRT_EXPORT("CryptQueryObject", CryptQueryObject);
 DECLARE_CRT_EXPORT("CryptSetHashParam", CryptSetHashParam);
+DECLARE_CRT_EXPORT("CryptStringToBinaryW", CryptStringToBinaryW);
 DECLARE_CRT_EXPORT("CryptVerifySignatureW", CryptVerifySignatureW);
 DECLARE_CRT_EXPORT("CryptDestroyHash", CryptDestroyHash);
-

@@ -102,6 +102,35 @@ static BOOL WINAPI RegisterWaitForSingleObject(PHANDLE phNewWaitObject, HANDLE h
     return TRUE;
 }
 
+typedef BOOL (WINAPI *PINIT_ONCE_FN)(PVOID InitOnce, PVOID Parameter, PVOID *Context);
+
+static BOOL WINAPI InitOnceBeginInitialize(PVOID lpInitOnce, DWORD dwFlags, BOOL *fPending, PVOID *lpContext)
+{
+    DebugLog("%p, %#x, %p, %p", lpInitOnce, dwFlags, fPending, lpContext);
+    if (fPending) {
+        *fPending = TRUE;
+    }
+    if (lpContext) {
+        *lpContext = NULL;
+    }
+    return TRUE;
+}
+
+static BOOL WINAPI InitOnceComplete(PVOID lpInitOnce, DWORD dwFlags, PVOID lpContext)
+{
+    DebugLog("%p, %#x, %p", lpInitOnce, dwFlags, lpContext);
+    return TRUE;
+}
+
+static BOOL WINAPI InitOnceExecuteOnce(PVOID InitOnce, PINIT_ONCE_FN InitFn, PVOID Parameter, PVOID *Context)
+{
+    DebugLog("%p, %p, %p, %p", InitOnce, InitFn, Parameter, Context);
+    if (!InitFn) {
+        return FALSE;
+    }
+    return InitFn(InitOnce, Parameter, Context);
+}
+
 static VOID WINAPI AcquireSRWLockExclusive(PVOID SRWLock)
 {
     DebugLog("%p", SRWLock);
@@ -185,6 +214,9 @@ DECLARE_CRT_EXPORT("GetThreadTimes", GetThreadTimes);
 DECLARE_CRT_EXPORT("GetCurrentThread", GetCurrentThread);
 DECLARE_CRT_EXPORT("CreateTimerQueueTimer", CreateTimerQueueTimer);
 DECLARE_CRT_EXPORT("RegisterWaitForSingleObject", RegisterWaitForSingleObject);
+DECLARE_CRT_EXPORT("InitOnceBeginInitialize", InitOnceBeginInitialize);
+DECLARE_CRT_EXPORT("InitOnceComplete", InitOnceComplete);
+DECLARE_CRT_EXPORT("InitOnceExecuteOnce", InitOnceExecuteOnce);
 DECLARE_CRT_EXPORT("WaitForSingleObject", WaitForSingleObject);
 DECLARE_CRT_EXPORT("GetCurrentProcess", GetCurrentProcess);
 DECLARE_CRT_EXPORT("LsaNtStatusToWinError", LsaNtStatusToWinError);

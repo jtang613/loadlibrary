@@ -47,11 +47,35 @@ STATIC DWORD WINAPI GetEnvironmentVariableW(PWCHAR lpName, PVOID lpBuffer, DWORD
 
     if (strcmp(AnsiName, "MpAsyncWorkMaxThreads") == 0) {
         memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpSevilleEnable") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MP_SEVILLE_ENABLE") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
     } else if (strcmp(AnsiName, "MP_FOLDERSCAN_THREAD_COUNT") == 0) {
         memcpy(lpBuffer, L"1", sizeof(L"1"));
     } else if (strcmp(AnsiName, "MP_PERSISTEDSTORE_DISABLE") == 0) {
         memcpy(lpBuffer, L"1", sizeof(L"1"));
     } else if (strcmp(AnsiName, "MP_METASTORE_DISABLE") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "UNPLIB_OVERRIDE_SIGNATURE") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpDisableValidateTrustAllowBadCertDirectory") == 0) {
+        memcpy(lpBuffer, L"0", sizeof(L"0"));
+    } else if (strcmp(AnsiName, "MpValidateTrustDistrustSigWithTrailingData") == 0) {
+        memcpy(lpBuffer, L"0", sizeof(L"0"));
+    } else if (strcmp(AnsiName, "MpDisableValidateTrustUseInternalCertFormat") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpDisableValidateTrustUseSSTCertFormat") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpDisableTrustAnchors") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpDisableTrustAnchorsSkipRootInstalled") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpDisableTrustAnchorsCheckAllRoots") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpDisableFastpathCertCheck") == 0) {
+        memcpy(lpBuffer, L"1", sizeof(L"1"));
+    } else if (strcmp(AnsiName, "MpFastpathEnableTestCert") == 0) {
         memcpy(lpBuffer, L"1", sizeof(L"1"));
     } else {
         SetLastError(ERROR_ENVVAR_NOT_FOUND);
