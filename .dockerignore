@@ -1,0 +1,11 @@
+.git
+engine
+faketemp
+mpam-fe.exe
+mpclient
+*.o
+*.a
+core
+core.*
+vgcore.*
+gmon.out
