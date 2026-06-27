@@ -73,6 +73,12 @@ static DWORD GetSystemDefaultLCID(void)
     return 0x0800; // I dunno
 }
 
+static DWORD GetUserDefaultLCID(void)
+{
+    DebugLog("");
+    return GetSystemDefaultLCID();
+}
+
 static NTSTATUS WINAPI NtQuerySystemInformation(DWORD SystemInformationClass,
                                                 PVOID SystemInformation,
                                                 ULONG SystemInformationLength,
@@ -119,6 +125,7 @@ DECLARE_CRT_EXPORT("GetVersionExA", GetVersionExA);
 DECLARE_CRT_EXPORT("RtlGetVersion", RtlGetVersion);
 DECLARE_CRT_EXPORT("GetSystemInfo", GetSystemInfo);
 DECLARE_CRT_EXPORT("GetSystemDefaultLCID", GetSystemDefaultLCID);
+DECLARE_CRT_EXPORT("GetUserDefaultLCID", GetUserDefaultLCID);
 DECLARE_CRT_EXPORT("NtQuerySystemInformation", NtQuerySystemInformation);
 DECLARE_CRT_EXPORT("GetComputerNameExW", GetComputerNameExW);
 DECLARE_CRT_EXPORT("GetProductInfo", GetProductInfo);

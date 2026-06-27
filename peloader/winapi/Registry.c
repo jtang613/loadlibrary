@@ -15,6 +15,10 @@
 #include "util.h"
 #include "winstrings.h"
 
+#define ERROR_SUCCESS 0
+#define ERROR_FILE_NOT_FOUND 2
+#define ERROR_MORE_DATA 234
+
 
 typedef struct _KEY_VALUE_BASIC_INFORMATION {
   ULONG TitleIndex;
@@ -48,6 +52,11 @@ STATIC LONG WINAPI RegOpenKeyExW(HANDLE hKey, PVOID lpSubKey, DWORD ulOptions, D
         Result = 0;
     } else if (strstr(ansikey, "DataCollection")) {
         *phkResult = (HANDLE) 'REG3';
+        Result = 0;
+    } else if (strstr(ansikey, "Windows Defender")
+            || strstr(ansikey, "Microsoft Antimalware")
+            || strstr(ansikey, "Defender")) {
+        *phkResult = (HANDLE) 'REG4';
         Result = 0;
     }
     free(ansikey);
@@ -204,7 +213,53 @@ STATIC NTSTATUS WINAPI RegQueryValueExW(HANDLE hKey,
                                         PDWORD lpcbData)
 {
     DebugLog("%p, %p, %p, %p, %p, %p", hKey, lpValueName, lpReserved, lpType, lpData, lpcbData);
-    return 2;
+    const char *Name = lpValueName ? CreateAnsiFromWide(lpValueName) : NULL;
+    DWORD Value = 0;
+    bool Found = false;
+
+    if (Name) {
+        Found = strcmp(Name, "MpDisableValidateTrustAllowBadCertDirectory") == 0
+             || strcmp(Name, "MpDisableValidateTrustUseInternalCertFormat") == 0
+             || strcmp(Name, "MpDisableValidateTrustUseSSTCertFormat") == 0
+             || strcmp(Name, "MpDisableTrustAnchors") == 0
+             || strcmp(Name, "MpDisableTrustAnchorsSkipRootInstalled") == 0
+             || strcmp(Name, "MpDisableTrustAnchorsCheckAllRoots") == 0
+             || strcmp(Name, "MpDisableFastpathCertCheck") == 0
+             || strcmp(Name, "MpFastpathEnableTestCert") == 0;
+
+        if (Found) {
+            Value = 1;
+        } else if (strcmp(Name, "MpValidateTrustDistrustSigWithTrailingData") == 0) {
+            Found = true;
+            Value = 0;
+        }
+    }
+
+    if (!Found) {
+        free((void *)Name);
+        return ERROR_FILE_NOT_FOUND;
+    }
+
+    if (lpType) {
+        *lpType = REG_DWORD;
+    }
+
+    if (lpcbData) {
+        if (!lpData || *lpcbData < sizeof(Value)) {
+            *lpcbData = sizeof(Value);
+            free((void *)Name);
+            return ERROR_MORE_DATA;
+        }
+        *lpcbData = sizeof(Value);
+    }
+
+    if (lpData) {
+        memcpy(lpData, &Value, sizeof(Value));
+    }
+
+    DebugLog("returning DWORD %#x for %s", Value, Name);
+    free((void *)Name);
+    return ERROR_SUCCESS;
 }
 
 
@@ -215,4 +270,3 @@ DECLARE_CRT_EXPORT("NtEnumerateValueKey", NtEnumerateValueKey);
 DECLARE_CRT_EXPORT("NtQueryValueKey", NtQueryValueKey);
 DECLARE_CRT_EXPORT("RegCreateKeyExW", RegCreateKeyExW);
 DECLARE_CRT_EXPORT("RegQueryValueExW", RegQueryValueExW);
-

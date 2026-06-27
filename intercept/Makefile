@@ -1,5 +1,9 @@
+DEBUG   ?= 0
 CFLAGS	= -O0 -ggdb3 -m32 -std=gnu99 -fshort-wchar -Wno-multichar -w
-CPPFLAGS= -DNDEBUG
+CPPFLAGS=
+ifneq ($(DEBUG),1)
+CPPFLAGS += -DNDEBUG
+endif
 LDFLAGS	= $(CFLAGS) -m32
 
 all: hook.o

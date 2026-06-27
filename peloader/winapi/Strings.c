@@ -18,6 +18,34 @@
 #define MB_ERR_INVALID_CHARS 8
 #define MB_PRECOMPOSED 1
 
+#define CT_CTYPE1 1
+#define C1_UPPER  0x0001
+#define C1_LOWER  0x0002
+#define C1_DIGIT  0x0004
+#define C1_SPACE  0x0008
+#define C1_PUNCT  0x0010
+#define C1_CNTRL  0x0020
+#define C1_BLANK  0x0040
+#define C1_XDIGIT 0x0080
+#define C1_ALPHA  0x0100
+
+static USHORT GetCType1ForChar(int Character)
+{
+    USHORT Type = 0;
+    unsigned char Ch = Character;
+
+    if (isupper(Ch)) Type |= C1_UPPER | C1_ALPHA;
+    if (islower(Ch)) Type |= C1_LOWER | C1_ALPHA;
+    if (isdigit(Ch)) Type |= C1_DIGIT;
+    if (isspace(Ch)) Type |= C1_SPACE;
+    if (ispunct(Ch)) Type |= C1_PUNCT;
+    if (iscntrl(Ch)) Type |= C1_CNTRL;
+    if (isblank(Ch)) Type |= C1_BLANK;
+    if (isxdigit(Ch)) Type |= C1_XDIGIT;
+
+    return Type;
+}
+
 STATIC int WINAPI MultiByteToWideChar(UINT CodePage,
                                       DWORD dwFlags,
                                       PCHAR lpMultiByteStr,
@@ -110,19 +138,60 @@ STATIC BOOL WINAPI GetStringTypeA(DWORD locale, DWORD dwInfoType, PUSHORT lpSrcS
 {
     DebugLog("%u, %u, %p, %d, %p", locale, dwInfoType, lpSrcStr, cchSrc, lpCharType);
 
-    memset(lpCharType, 1, cchSrc * sizeof(USHORT));
+    if (dwInfoType != CT_CTYPE1) {
+        return FALSE;
+    }
 
-    return FALSE;
+    for (int i = 0; i < cchSrc; i++) {
+        lpCharType[i] = GetCType1ForChar(((PBYTE) lpSrcStr)[i]);
+    }
+
+    return TRUE;
 }
 
+STATIC BOOL WINAPI GetStringTypeExA(DWORD Locale, DWORD dwInfoType, PCHAR lpSrcStr, int cchSrc, PUSHORT lpCharType)
+{
+    DebugLog("%u, %u, %p, %d, %p", Locale, dwInfoType, lpSrcStr, cchSrc, lpCharType);
+
+    if (dwInfoType != CT_CTYPE1) {
+        return FALSE;
+    }
+
+    for (int i = 0; i < cchSrc; i++) {
+        lpCharType[i] = GetCType1ForChar(lpSrcStr[i]);
+    }
+
+    return TRUE;
+}
+
+STATIC BOOL WINAPI GetStringTypeExW(DWORD Locale, DWORD dwInfoType, PUSHORT lpSrcStr, int cchSrc, PUSHORT lpCharType)
+{
+    DebugLog("%u, %u, %p, %d, %p", Locale, dwInfoType, lpSrcStr, cchSrc, lpCharType);
+
+    if (dwInfoType != CT_CTYPE1) {
+        return FALSE;
+    }
+
+    for (int i = 0; i < cchSrc; i++) {
+        lpCharType[i] = GetCType1ForChar(lpSrcStr[i] & 0xff);
+    }
+
+    return TRUE;
+}
 
 STATIC BOOL WINAPI GetStringTypeW(DWORD dwInfoType, PUSHORT lpSrcStr, int cchSrc, PUSHORT lpCharType)
 {
     DebugLog("%u, %p, %d, %p", dwInfoType, lpSrcStr, cchSrc, lpCharType);
 
-    memset(lpCharType, 1, cchSrc * sizeof(USHORT));
+    if (dwInfoType != CT_CTYPE1) {
+        return FALSE;
+    }
 
-    return FALSE;
+    for (int i = 0; i < cchSrc; i++) {
+        lpCharType[i] = GetCType1ForChar(lpSrcStr[i] & 0xff);
+    }
+
+    return TRUE;
 }
 
 STATIC VOID WINAPI RtlInitUnicodeString(PUNICODE_STRING DestinationString, PWCHAR SourceString)
@@ -219,9 +288,10 @@ STATIC INT WINAPI CompareStringOrdinal(PVOID lpString1,
 DECLARE_CRT_EXPORT("MultiByteToWideChar", MultiByteToWideChar);
 DECLARE_CRT_EXPORT("WideCharToMultiByte", WideCharToMultiByte);
 DECLARE_CRT_EXPORT("GetStringTypeA", GetStringTypeA);
+DECLARE_CRT_EXPORT("GetStringTypeExA", GetStringTypeExA);
+DECLARE_CRT_EXPORT("GetStringTypeExW", GetStringTypeExW);
 DECLARE_CRT_EXPORT("GetStringTypeW", GetStringTypeW);
 DECLARE_CRT_EXPORT("RtlInitUnicodeString", RtlInitUnicodeString);
 DECLARE_CRT_EXPORT("UuidFromStringW", UuidFromStringW);
 DECLARE_CRT_EXPORT("UuidCreate", UuidCreate);
 DECLARE_CRT_EXPORT("CompareStringOrdinal", CompareStringOrdinal);
-

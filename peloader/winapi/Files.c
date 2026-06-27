@@ -310,6 +310,36 @@ static DWORD WINAPI GetFullPathNameW(
     return 0;
 }
 
+static DWORD WINAPI GetCurrentDirectoryW(DWORD nBufferLength, PWCHAR lpBuffer)
+{
+    static const WCHAR CurrentDirectory[] = L"C:\\dummy";
+    DWORD Length = sizeof(CurrentDirectory) / sizeof(CurrentDirectory[0]) - 1;
+
+    DebugLog("%u, %p", nBufferLength, lpBuffer);
+
+    if (lpBuffer && nBufferLength > Length) {
+        memcpy(lpBuffer, CurrentDirectory, sizeof(CurrentDirectory));
+    }
+
+    return Length;
+}
+
+static BOOL WINAPI CreateDirectoryW(PWCHAR lpPathName, PVOID lpSecurityAttributes)
+{
+    char *name = CreateAnsiFromWide(lpPathName);
+    DebugLog("%p [%s], %p", lpPathName, name, lpSecurityAttributes);
+    free(name);
+    return TRUE;
+}
+
+static BOOL WINAPI RemoveDirectoryW(PWCHAR lpPathName)
+{
+    char *name = CreateAnsiFromWide(lpPathName);
+    DebugLog("%p [%s]", lpPathName, name);
+    free(name);
+    return TRUE;
+}
+
 static BOOL SetEndOfFile(HANDLE hFile)
 {
     DebugLog("");
@@ -368,6 +398,9 @@ DECLARE_CRT_EXPORT("NtClose", NtClose);
 DECLARE_CRT_EXPORT("DeviceIoControl", DeviceIoControl);
 DECLARE_CRT_EXPORT("NtQueryVolumeInformationFile", NtQueryVolumeInformationFile);
 DECLARE_CRT_EXPORT("GetFullPathNameW", GetFullPathNameW);
+DECLARE_CRT_EXPORT("GetCurrentDirectoryW", GetCurrentDirectoryW);
+DECLARE_CRT_EXPORT("CreateDirectoryW", CreateDirectoryW);
+DECLARE_CRT_EXPORT("RemoveDirectoryW", RemoveDirectoryW);
 DECLARE_CRT_EXPORT("SetEndOfFile", SetEndOfFile);
 DECLARE_CRT_EXPORT("QueryDosDeviceW", QueryDosDevice);
 DECLARE_CRT_EXPORT("GetDiskFreeSpaceExW", GetDiskFreeSpaceExW);

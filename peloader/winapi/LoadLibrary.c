@@ -14,6 +14,10 @@
 #include "util.h"
 #include "winstrings.h"
 
+#define GET_MODULE_HANDLE_EX_FLAG_PIN                 0x00000001
+#define GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT  0x00000002
+#define GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS        0x00000004
+
 
 static HANDLE WINAPI LoadLibraryExW(PVOID lpFileName, HANDLE hFile, DWORD dwFlags)
 {
@@ -37,7 +41,7 @@ static PVOID WINAPI GetProcAddress(HANDLE hModule, PCHAR lpProcName)
 {
     ENTRY key = { lpProcName }, *item;
 
-    assert(hModule == (HANDLE) NULL || hModule == (HANDLE) 'LOAD' || hModule == (HANDLE) 'MPEN' || hModule == (HANDLE) 'VERS' || hModule == (HANDLE) 'KERN');
+    assert(hModule == (HANDLE) NULL || hModule == MainModuleBase || hModule == (HANDLE) 'LOAD' || hModule == (HANDLE) 'MPEN' || hModule == (HANDLE) 'VERS' || hModule == (HANDLE) 'KERN');
 
     if (hsearch_r(key, FIND, &item, &crtexports)) {
         return item->data;
@@ -56,6 +60,9 @@ static HANDLE WINAPI GetModuleHandleW(PVOID lpModuleName)
 
     free(name);
 
+    if (!lpModuleName)
+        return MainModuleBase;
+
     if (lpModuleName && memcmp(lpModuleName, L"mpengine.dll", sizeof(L"mpengine.dll")) == 0)
         return (HANDLE) 'MPEN';
 
@@ -71,6 +78,32 @@ static HANDLE WINAPI GetModuleHandleW(PVOID lpModuleName)
     if (lpModuleName && memcmp(lpModuleName, L"version.dll", sizeof(L"version.dll")) == 0)
         return (HANDLE) 'VERS';
     return (HANDLE) NULL;
+}
+
+static BOOL WINAPI GetModuleHandleExW(DWORD dwFlags, PVOID lpModuleName, HANDLE *phModule)
+{
+    HANDLE Module;
+    char *name = CreateAnsiFromWide(lpModuleName);
+
+    DebugLog("%#x, %p [%s], %p", dwFlags, lpModuleName, name, phModule);
+    free(name);
+
+    if (!phModule) {
+        return FALSE;
+    }
+
+    if (dwFlags & GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS) {
+        *phModule = MainModuleBase;
+        return TRUE;
+    }
+
+    Module = GetModuleHandleW(lpModuleName);
+    if (!Module && lpModuleName) {
+        Module = (HANDLE) 'LOAD';
+    }
+
+    *phModule = Module;
+    return Module != NULL;
 }
 
 static DWORD WINAPI GetModuleFileNameA(HANDLE hModule, PCHAR lpFilename, DWORD nSize)
@@ -97,6 +130,9 @@ static HANDLE WINAPI GetModuleHandleA(PCHAR lpModuleName)
 {
     DebugLog("%p [%s]", lpModuleName, lpModuleName);
 
+    if (!lpModuleName)
+        return MainModuleBase;
+
     return (HANDLE) NULL;
 }
 
@@ -111,5 +147,6 @@ DECLARE_CRT_EXPORT("LoadLibraryW", LoadLibraryW);
 DECLARE_CRT_EXPORT("GetProcAddress", GetProcAddress);
 DECLARE_CRT_EXPORT("GetModuleHandleW", GetModuleHandleW);
 DECLARE_CRT_EXPORT("GetModuleHandleA", GetModuleHandleA);
+DECLARE_CRT_EXPORT("GetModuleHandleExW", GetModuleHandleExW);
 DECLARE_CRT_EXPORT("GetModuleFileNameA", GetModuleFileNameA);
 DECLARE_CRT_EXPORT("GetModuleFileNameW", GetModuleFileNameW);
