@@ -18,6 +18,32 @@
 #include "winexports.h"
 #include "util.h"
 
+#define EXCEPTION_CONTINUE_EXECUTION    (-1)
+#define EXCEPTION_CONTINUE_SEARCH       0
+#define EXCEPTION_EXECUTE_HANDLER       1
+
+typedef struct _EXCEPTION_POINTERS {
+    PEXCEPTION_RECORD ExceptionRecord;
+    CONTEXT *ContextRecord;
+} EXCEPTION_POINTERS, *PEXCEPTION_POINTERS;
+
+typedef LONG (WINAPI *LPTOP_LEVEL_EXCEPTION_FILTER)(PEXCEPTION_POINTERS ExceptionInfo);
+
+static LPTOP_LEVEL_EXCEPTION_FILTER TopLevelExceptionFilter;
+
+#define MPENGINE_HELPER_THROW_HANDLER   0x1095754c
+#define MPENGINE_SCAN_THROW_HANDLER     0x109a9ecf
+
+static bool ShouldUnlinkTargetFrame(PEXCEPTION_FRAME TargetFrame)
+{
+    uintptr_t Handler = (uintptr_t) TargetFrame->handler;
+
+    // These mpengine C++ EH funclets can throw again before their registration
+    // frame is restored normally. Leaving the target frame linked lets the next
+    // throw dispatch through a reused stack slot.
+    return Handler == MPENGINE_HELPER_THROW_HANDLER || Handler == MPENGINE_SCAN_THROW_HANDLER;
+}
+
 #ifndef NDEBUG
 // You can use `call DumpExceptionChain()` in gdb, like !exchain in windbg if
 // you need to debug exception handling.
@@ -48,12 +74,17 @@ static WINAPI PVOID RaiseException(DWORD dwExceptionCode, DWORD dwExceptionFlags
     DWORD Disposition;
     DWORD Depth;
     CONTEXT Context = {0};
+    uintptr_t *Frame = __builtin_frame_address(0);
     EXCEPTION_RECORD Record = {
         .ExceptionCode = dwExceptionCode,
         .ExceptionFlags = dwExceptionFlags,
-        .ExceptionAddress =  &&finished,
+        .ExceptionAddress = (PVOID) Frame[1],
         .NumberParameters = nNumberOfArguments,
     };
+
+    Context.Ebp = (DWORD) Frame[0];
+    Context.Eip = (DWORD) Frame[1];
+    Context.Esp = (DWORD) &Frame[2];
 
     // Setup Record
     memcpy(&Record.ExceptionInformation, Arguments, nNumberOfArguments * sizeof(ULONG));
@@ -67,6 +98,14 @@ static WINAPI PVOID RaiseException(DWORD dwExceptionCode, DWORD dwExceptionFlags
     asm("mov %%fs:0, %[list]" : [list] "=r"(ExceptionList));
 
     DebugLog("C++ Exception %#x! ExceptionList %p, Dumping SEH Chain...", dwExceptionCode, ExceptionList);
+    DebugLog("code=%#x flags=%#x address=%p args=%#x/%#x/%#x ExceptionList=%p",
+             dwExceptionCode,
+             dwExceptionFlags,
+             Record.ExceptionAddress,
+             Record.ExceptionInformation[0],
+             Record.ExceptionInformation[1],
+             Record.ExceptionInformation[2],
+             ExceptionList);
 
     for (Depth = 0; ExceptionList; ExceptionList = ExceptionList->prev) {
         DWORD Result;
@@ -80,6 +119,11 @@ static WINAPI PVOID RaiseException(DWORD dwExceptionCode, DWORD dwExceptionFlags
         Result = ExceptionList->handler(&Record, ExceptionList, &Context, &Dispatch);
 
         DebugLog("%*s Handler Result: %u, Dispatch: %p", Depth, "", Result, Dispatch);
+        DebugLog("handler=%p frame=%p result=%u dispatch=%p",
+                 ExceptionList->handler,
+                 ExceptionList,
+                 Result,
+                 Dispatch);
 
         if (Result == ExceptionContinueSearch) {
             continue;
@@ -111,6 +155,11 @@ static WINAPI void RtlUnwind(PEXCEPTION_FRAME TargetFrame, PVOID TargetIp, PEXCE
     ucontext_t Context;
 
     DebugLog("%p, %p, %p, %p", TargetFrame, TargetIp, ExceptionRecord, ReturnValue);
+    DebugLog("target=%p target_ip=%p record=%p return=%p",
+             TargetFrame,
+             TargetIp,
+             ExceptionRecord,
+             ReturnValue);
 
     assert(ExceptionRecord);
     assert(TargetFrame);
@@ -144,7 +193,23 @@ static WINAPI void RtlUnwind(PEXCEPTION_FRAME TargetFrame, PVOID TargetIp, PEXCE
 
         // You don't call the final handler, you just install the new context.
         if (ExceptionList == TargetFrame) {
+            PEXCEPTION_FRAME NextFrame = ExceptionList->prev;
+
             DebugLog("TargetFrame %p == ExceptionList %p, Restore Context", ExceptionList, TargetFrame);
+            DebugLog("restoring context at frame=%p eip=%#x esp=%#x ebp=%#x eax=%#x",
+                     ExceptionList,
+                     Context.uc_mcontext.gregs[REG_EIP],
+                     Context.uc_mcontext.gregs[REG_ESP],
+                     Context.uc_mcontext.gregs[REG_EBP],
+                     Context.uc_mcontext.gregs[REG_EAX]);
+
+            if (ShouldUnlinkTargetFrame(TargetFrame)) {
+                DebugLog("unlinking target frame=%p handler=%p next=%p",
+                         ExceptionList,
+                         ExceptionList->handler,
+                         NextFrame);
+                asm("mov %[list], %%fs:0" :: [list] "r"(NextFrame));
+            }
 
             setcontext(&Context);
 
@@ -156,6 +221,11 @@ static WINAPI void RtlUnwind(PEXCEPTION_FRAME TargetFrame, PVOID TargetIp, PEXCE
         Result = ExceptionList->handler(ExceptionRecord, ExceptionList, NULL, (PVOID) &Dispatch);
 
         DebugLog("%*s Result: %u, Dispatch: %p", Depth, "", Result, Dispatch);
+        DebugLog("handler=%p frame=%p result=%u dispatch=%#x",
+                 ExceptionList->handler,
+                 ExceptionList,
+                 Result,
+                 Dispatch);
 
         if (Result != ExceptionContinueSearch) {
             // I've never seen any other handler return code with mpengine.
@@ -170,6 +240,29 @@ static WINAPI void RtlUnwind(PEXCEPTION_FRAME TargetFrame, PVOID TargetIp, PEXCE
     __debugbreak();
 }
 
+static WINAPI LONG UnhandledExceptionFilter(PEXCEPTION_POINTERS ExceptionInfo)
+{
+    LogMessage("UnhandledExceptionFilter(%p)", ExceptionInfo);
+
+    if (TopLevelExceptionFilter) {
+        return TopLevelExceptionFilter(ExceptionInfo);
+    }
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static WINAPI LPTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(LPTOP_LEVEL_EXCEPTION_FILTER Filter)
+{
+    LPTOP_LEVEL_EXCEPTION_FILTER PreviousFilter = TopLevelExceptionFilter;
+
+    LogMessage("SetUnhandledExceptionFilter(%p)", Filter);
+    TopLevelExceptionFilter = Filter;
+
+    return PreviousFilter;
+}
+
 
 DECLARE_CRT_EXPORT("RaiseException", RaiseException);
 DECLARE_CRT_EXPORT("RtlUnwind", RtlUnwind);
+DECLARE_CRT_EXPORT("UnhandledExceptionFilter", UnhandledExceptionFilter);
+DECLARE_CRT_EXPORT("SetUnhandledExceptionFilter", SetUnhandledExceptionFilter);
