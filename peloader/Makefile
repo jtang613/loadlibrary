@@ -1,5 +1,10 @@
-CFLAGS  = -O3 -march=native -ggdb3 -m32 -std=gnu99 -fshort-wchar -Wno-multichar -Iinclude -mstackrealign
-CPPFLAGS=-DNDEBUG -D_GNU_SOURCE -I.
+DEBUG   ?= 0
+OPTFLAGS = $(if $(filter 1,$(DEBUG)),-O0,-O3 -march=native)
+CFLAGS  = $(OPTFLAGS) -ggdb3 -m32 -std=gnu99 -fshort-wchar -Wno-multichar -Iinclude -mstackrealign
+CPPFLAGS= -D_GNU_SOURCE -I.
+ifneq ($(DEBUG),1)
+CPPFLAGS += -DNDEBUG
+endif
 LDFLAGS = $(CFLAGS) -m32 -lm
 
 .PHONY: clean
