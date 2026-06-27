@@ -93,6 +93,7 @@ extern struct wrap_export crt_exports[];
 
 uintptr_t LocalStorage[1024] = {0};
 PFLS_CALLBACK_FUNCTION FlsCallbacks[1024] = {0};
+PVOID MainModuleBase;
 
 static ULONG TlsBitmapData[32];
 static RTL_BITMAP TlsBitmap = {
@@ -557,6 +558,10 @@ int link_pe_images(struct pe_image *pe_image, unsigned short n)
                         return -EINVAL;
                 }
 
+                if (i == 0) {
+                        MainModuleBase = pe->image;
+                }
+
                 if (read_exports(pe)) {
                         TRACE1("read exports failed");
                         return -EINVAL;
@@ -668,7 +673,15 @@ error:
 bool setup_nt_threadinfo(PEXCEPTION_HANDLER ExceptionHandler)
 {
     static EXCEPTION_FRAME ExceptionFrame;
+    static struct {
+        ULONG MaximumLength;
+        ULONG Length;
+        ULONG Flags;
+    } ProcessParameters = {
+        .Length = sizeof(ProcessParameters),
+    };
     static PEB ProcessEnvironmentBlock = {
+        .ProcessParameters  = &ProcessParameters,
         .TlsBitmap          = &TlsBitmap,
     };
     static TEB ThreadEnvironment = {
@@ -687,6 +700,8 @@ bool setup_nt_threadinfo(PEXCEPTION_HANDLER ExceptionHandler)
         .seg_not_present    = 0,
         .useable            = 1,
     };
+
+    ProcessEnvironmentBlock.ImageBaseAddress = MainModuleBase;
 
     if (ExceptionHandler) {
         if (ThreadEnvironment.Tib.ExceptionList) {

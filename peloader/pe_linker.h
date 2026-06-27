@@ -1106,5 +1106,6 @@ bool setup_kuser_shared_data(void);
 bool process_extra_exports(void *imagebase, size_t base, const char *filename);
 
 extern PKUSER_SHARED_DATA SharedUserData;
+extern PVOID MainModuleBase;
 
 #endif

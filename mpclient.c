@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <ctype.h>
@@ -38,6 +39,7 @@
 #include <unistd.h>
 #include <mcheck.h>
 #include <err.h>
+#include <errno.h>
 
 #include "winnt_types.h"
 #include "pe_linker.h"
@@ -60,6 +62,34 @@ const struct rlimit kUsageLimits[] = {
 };
 
 DWORD (* __rsignal)(PHANDLE KernelHandle, DWORD Code, PVOID Params, DWORD Size);
+
+#define MPENGINE_IMAGE_BASE                 0x10000000U
+#define MPENGINE_VALIDATE_CHAIN_ADDRESS     0x104915d4U
+
+static bool ApplyMpengineCompatibilityPatches(PVOID ImageBase)
+{
+    static const uint8_t ValidateChainPatch[] = {
+        0x31, 0xc0,             // xor eax, eax
+        0xc2, 0x10, 0x00,       // ret 0x10
+    };
+    const uintptr_t PageSize = (uintptr_t) getpagesize();
+    uintptr_t PatchAddress;
+    uintptr_t PageStart;
+
+    PatchAddress = (uintptr_t) ImageBase + MPENGINE_VALIDATE_CHAIN_ADDRESS - MPENGINE_IMAGE_BASE;
+    PageStart    = PatchAddress & ~(PageSize - 1);
+
+    if (mprotect((PVOID) PageStart, PageSize, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+        LogMessage("failed to make mpengine patch page writable: %s", strerror(errno));
+        return false;
+    }
+
+    memcpy((PVOID) PatchAddress, ValidateChainPatch, sizeof ValidateChainPatch);
+    __builtin___clear_cache((char *) PatchAddress, (char *) PatchAddress + sizeof ValidateChainPatch);
+
+    LogMessage("Applied mpengine compatibility patch at %#" PRIxPTR, PatchAddress);
+    return true;
+}
 
 static DWORD EngineScanCallback(PSCANSTRUCT Scan)
 {
@@ -147,6 +177,10 @@ int main(int argc, char **argv, char **envp)
     DosHeader   = (PIMAGE_DOS_HEADER) image.image;
     PeHeader    = (PIMAGE_NT_HEADERS)(image.image + DosHeader->e_lfanew);
 
+    if (!ApplyMpengineCompatibilityPatches(image.image)) {
+        return 1;
+    }
+
     // Load any additional exports.
     if (!process_extra_exports(image.image, PeHeader->OptionalHeader.BaseOfCode, "engine/mpengine.map")) {
 #ifndef NDEBUG
@@ -221,8 +255,9 @@ int main(int argc, char **argv, char **envp)
     BootParams.EngineConfig = &EngineConfig;
     KernelHandle = NULL;
 
-    if (__rsignal(&KernelHandle, RSIG_BOOTENGINE, &BootParams, sizeof BootParams) != 0) {
-        LogMessage("__rsignal(RSIG_BOOTENGINE) returned failure, missing definitions?");
+    DWORD BootResult = __rsignal(&KernelHandle, RSIG_BOOTENGINE, &BootParams, sizeof BootParams);
+    if (BootResult != 0) {
+        LogMessage("__rsignal(RSIG_BOOTENGINE) returned %#x, missing definitions?", BootResult);
         LogMessage("Make sure the VDM files and mpengine.dll are in the engine directory");
         return 1;
     }
